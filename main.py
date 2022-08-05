@@ -119,9 +119,10 @@ def get_blinding_data(alice, bob):
     # - Output assetblinder
     # - Output amountblinder
     # - Ephemeral rangeproof ECDH key
+    # - Explicit value rangeproof
     # - Surjectionproof seed
     num_outputs_to_blind = 2
-    entropy = secrets.token_bytes(num_outputs_to_blind * 4 * 32)
+    entropy = secrets.token_bytes(num_outputs_to_blind * 5 * 32)
     return values, vbfs, assets, abfs, entropy
 
 
