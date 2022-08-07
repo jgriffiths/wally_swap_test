@@ -5,9 +5,9 @@ def setup_alice():
     # Alice gets LBTC_SATOSHI + LBTC_FEE_SATOSHI L-BTC @ alice.lbtc_address, with
     # the UTXO in alice.lbtc_utxo
     alice = gdk_create_session(gdk.generate_mnemonic())
-    alice.subaccount = 0
     alice.asset_id = LBTC_ASSET
-    alice.lbtc_address = alice.get_receive_address(alice.subaccount).resolve()
+    addr_details = {'subaccount': alice.subaccount}
+    alice.lbtc_address = alice.get_receive_address(addr_details).resolve()
     amount = LBTC_SATOSHI + LBTC_FEE_SATOSHI
     core_send_blinded(LBTC_ASSET, alice.lbtc_address['address'], amount)
     alice.lbtc_utxo = gdk_wait_for_utxo(alice, alice.subaccount, LBTC_ASSET)
@@ -17,16 +17,15 @@ def setup_bob(asset_details):
     # Bob gets ASSET_SATOSHI bob.asset_id @ bob.asset_address, with
     # the UTXO in bob.asset_utxo
     bob = gdk_create_session(gdk.generate_mnemonic())
-    bob.subaccount = 0
     bob.asset_id = asset_details['asset']
-    bob.asset_address = bob.get_receive_address(bob.subaccount).resolve()
+    addr_details = {'subaccount': bob.subaccount}
+    bob.asset_address = bob.get_receive_address(addr_details).resolve()
     core_send_blinded(bob.asset_id, bob.asset_address['address'], ASSET_SATOSHI)
     bob.asset_utxo = gdk_wait_for_utxo(bob, bob.subaccount, bob.asset_id)
     return bob
 
 def add_input_utxo(psbt, utxo, addr):
     # Add a users UTXO from gdk as a PSBT input
-    assert utxo['address_type'] == 'csv' # Only tested with multisig
     assert utxo['script'] == addr['blinding_script']
 
     # Add the input to the psbt
@@ -53,7 +52,8 @@ def add_input_utxo(psbt, utxo, addr):
                                                             utxo['pt_idx']))
     # Redeemscript
     script = h2b(addr['script'])
-    if True:
+    if utxo['address_type'] in ['csv', 'p2wsh']:
+        # Note: 'p2wsh' for multisig is p2sh wrapped p2wsh.
         # For Green multisig swaps, Green server signing currently requires
         # that swap inputs are *provably* segwit in order to eliminate
         # malleation from the processing state machine.
@@ -72,7 +72,8 @@ def create_alice_partial_swap_psbt(alice, psbt, asset_details):
     idx = add_input_utxo(psbt, alice.lbtc_utxo, alice.lbtc_address)
 
     # Add Alice's ASSET output
-    addr = alice.get_receive_address(alice.subaccount).resolve()
+    addr_details = {'subaccount': alice.subaccount}
+    addr = alice.get_receive_address(addr_details).resolve()
     alice.asset_receive_address = addr
     asset_tag = bytearray([1]) + h2b_rev(asset_details['asset']) # Unblinded
     value = tx_confidential_value_from_satoshi(asset_details['satoshi']) # Unblinded
@@ -87,7 +88,8 @@ def create_bob_full_swap_psbt(bob, psbt, asset_details):
     idx = add_input_utxo(psbt, bob.asset_utxo, bob.asset_address)
 
     # Add Bob's L-BTC output
-    addr = bob.get_receive_address(bob.subaccount).resolve()
+    bob_details = {'subaccount': alice.subaccount}
+    addr = bob.get_receive_address(bob_details).resolve()
     bob.lbtc_receive_address = addr
     lbtc_tag = bytearray([1]) + h2b_rev(LBTC_ASSET) # Unblinded
     value = tx_confidential_value_from_satoshi(LBTC_SATOSHI) # Unblinded
@@ -125,6 +127,10 @@ def get_blinding_data(alice, bob):
     entropy = secrets.token_bytes(num_outputs_to_blind * 5 * 32)
     return values, vbfs, assets, abfs, entropy
 
+def get_blinding_nonce(psbt, ephemeral_keys, output_index):
+    ephemeral_key = map_get_item(ephemeral_keys, output_index)
+    blinding_pubkey = psbt_get_output_blinding_public_key(psbt, output_index)
+    return ecdh_nonce_hash(blinding_pubkey, ephemeral_key)
 
 if __name__ == '__main__':
     # Regtest: fund the core wallet with LBTC and issue the asset
@@ -157,8 +163,15 @@ if __name__ == '__main__':
     # TODO: Agree on a method to pass blinding data out-of-band.
     values, vbfs, assets, abfs, entropy = get_blinding_data(alice, bob)
     flags = 0
-    psbt_blind(psbt, values, vbfs, assets, abfs, entropy, flags)
+    ephemeral_keys = psbt_blind(psbt, values, vbfs, assets, abfs, entropy, flags)
     b64 = psbt_to_base64(psbt, 0)
+
+    # Get the blinding nonces for both blinded outputs.
+    # These are only required for AMP subaccounts, but we pass them
+    # in all cases since they are cheap to compute.
+    alice_nonce = get_blinding_nonce(psbt, ephemeral_keys, 0)
+    bob_nonce = get_blinding_nonce(psbt, ephemeral_keys, 1)
+    nonces = [b2h(alice_nonce), b2h(bob_nonce), '']
 
     print('Blinded PSBT: ' + b64)
     print('Decoded Blinded PSBT: ' + core_cmd('decodepsbt', b64))
@@ -172,12 +185,18 @@ if __name__ == '__main__':
     print('Bob gdk psbt_get_details: ' + json.dumps(bob_gdk_details, indent=2))
 
     # Bob signs his asset input in the PSBT
-    bob_sign_details = bob.psbt_sign({'psbt': b64, 'utxos': [bob.asset_utxo]}).resolve()
+    bob_sign_details = bob.psbt_sign({
+        'psbt': b64,
+        'utxos': [bob.asset_utxo],
+        'blinding_nonces': nonces}).resolve()
     b64 = bob_sign_details['psbt']
     print('Bob signed PSBT: ' + json.dumps(bob_sign_details, indent=2))
 
     # Alice then signs her LBTC input in the PSBT
-    alice_sign_details = alice.psbt_sign({'psbt': b64, 'utxos': [alice.lbtc_utxo]}).resolve()
+    alice_sign_details = alice.psbt_sign({
+        'psbt': b64,
+        'utxos': [alice.lbtc_utxo],
+        'blinding_nonces': nonces}).resolve()
     b64 = alice_sign_details['psbt']
     print('Alice signed PSBT: ' + json.dumps(alice_sign_details, indent=2))
 

@@ -17,6 +17,7 @@ LBTC_ASSET = gdk.get_networks()[NETWORK]['policy_asset']
 LBTC_SATOSHI = int(1e8)
 LBTC_FEE_SATOSHI = 5000
 ASSET_SATOSHI = int(1e8)
+USE_AMP = True
 
 def h2b(h):
     return hex_to_bytes(h)
@@ -63,6 +64,13 @@ def gdk_create_session(mnemonic):
     credentials = {'mnemonic': session.mnemonic}
     session.register_user({}, credentials).resolve()
     session.post_login_data = session.login_user({}, credentials).resolve()
+    sa = 0 # Default to the initial subaccount
+    if USE_AMP:
+        # Create an AMP subaccount
+        sa = session.create_subaccount({
+            'name': 'amp_swap_test',
+            'type': '2of2_no_recovery'}).resolve()['pointer']
+    session.subaccount = sa
     return session
 
 def gdk_wait_for_utxo(user, subaccount, asset_id):
