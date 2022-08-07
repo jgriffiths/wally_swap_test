@@ -24,7 +24,7 @@ def setup_bob(asset_details):
     bob.asset_utxo = gdk_wait_for_utxo(bob, bob.subaccount, bob.asset_id)
     return bob
 
-def add_input_utxo(psbt, utxo, addr):
+def add_input_utxo(session, psbt, utxo, addr):
     # Add a users UTXO from gdk as a PSBT input
     assert utxo['script'] == addr['blinding_script']
 
@@ -36,7 +36,12 @@ def add_input_utxo(psbt, utxo, addr):
                                        seq, None, None))
 
     # Non-witness UTXO
-    funding_tx_hex = core_cmd('getrawtransaction', utxo['txhash'])
+    if True:
+        # Get from gdk (with caching)
+        funding_tx_hex = session.get_transaction_details(utxo['txhash'])['transaction']
+    else:
+        # Get from core (for testing only)
+        funding_tx_hex = core_cmd('getrawtransaction', utxo['txhash'])
     funding_tx = tx_from_hex(funding_tx_hex, WALLY_TX_FLAG_USE_ELEMENTS)
     # Not needed for non-segwit/Liquid
     #psbt_set_input_utxo(psbt, idx, funding_tx)
@@ -69,7 +74,7 @@ def add_input_utxo(psbt, utxo, addr):
 
 def create_alice_partial_swap_psbt(alice, psbt, asset_details):
     # Add Alice's L-BTC input
-    idx = add_input_utxo(psbt, alice.lbtc_utxo, alice.lbtc_address)
+    idx = add_input_utxo(alice, psbt, alice.lbtc_utxo, alice.lbtc_address)
 
     # Add Alice's ASSET output
     addr_details = {'subaccount': alice.subaccount}
@@ -85,7 +90,7 @@ def create_alice_partial_swap_psbt(alice, psbt, asset_details):
 
 def create_bob_full_swap_psbt(bob, psbt, asset_details):
     # Add Bob's ASSET input
-    idx = add_input_utxo(psbt, bob.asset_utxo, bob.asset_address)
+    idx = add_input_utxo(bob, psbt, bob.asset_utxo, bob.asset_address)
 
     # Add Bob's L-BTC output
     bob_details = {'subaccount': alice.subaccount}
@@ -174,8 +179,8 @@ if __name__ == '__main__':
     nonces = [b2h(alice_nonce), b2h(bob_nonce), '']
 
     print('Blinded PSBT: ' + b64)
-    print('Decoded Blinded PSBT: ' + core_cmd('decodepsbt', b64))
-    print('Analyzed Blinded PSBT: ' + core_cmd('analyzepsbt', b64))
+    #print('Decoded Blinded PSBT: ' + core_cmd('decodepsbt', b64))
+    #print('Analyzed Blinded PSBT: ' + core_cmd('analyzepsbt', b64))
 
     # psbt_get_details from gdk can be used to examine each parties inputs and outputs
     alice_gdk_details = alice.psbt_get_details({'psbt': b64, 'utxos': [alice.lbtc_utxo]}).resolve()
@@ -203,12 +208,23 @@ if __name__ == '__main__':
     #print('Decoded Signed PSBT: ' + core_cmd('decodepsbt', b64))
     #print('Analyzed Signed PSBT: ' + core_cmd('analyzepsbt', b64))
 
-    # Finalize the PSBT to get the signed raw transaction hex
-    # FIXME: finalize with wally
-    finalized = json.loads(core_cmd('finalizepsbt', b64, 'true'))
+    # Alice finalizes the signed PSBT to get the signed raw transaction hex
+    psbt = psbt_from_base64(b64)
+    # We set the redeem scripts back to their correct value here.
+    # This doesn't seem to be required for segwit inputs but
+    # it seems like good manners in general.
+    psbt_set_input_redeem_script(psbt, 0, h2b(alice.lbtc_address['script']))
+    psbt_set_input_redeem_script(psbt, 1, h2b(bob.asset_address['script']))
+    psbt_finalize(psbt)
+    tx = psbt_extract(psbt)
+    tx_hex = tx_to_hex(tx, WALLY_TX_FLAG_USE_WITNESS)
+
+    # Just for testing, verify that core and wally finalize to the same tx
+    core_finalized = json.loads(core_cmd('finalizepsbt', b64, 'true'))
+    assert tx_hex == core_finalized['hex']
 
     # Alice then sends the transaction via gdk (it can be broadcast by any method)
-    txid = alice.broadcast_transaction(finalized['hex'])
+    txid = alice.broadcast_transaction(tx_hex)
     print('Sent Txid: ' + txid)
 
     # Wait for Alice and Bob to see the new tx, updating their UTXOs
