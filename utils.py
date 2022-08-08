@@ -8,16 +8,28 @@ import json, os, sys
 CORE_CLI = '/home/user/develop/work/ga-backend/ga_setup/liquidd/bin/liquid-cli'
 CORE_CONF = '-conf=/home/user/develop/work/ga-backend/ga_setup/.liquidd.conf'
 NETWORK = 'localtest-liquid'
+#NETWORK = 'electrum-localtest-liquid'
 GDK_INIT_DETAILS = {
     'datadir': os.getenv('PWD', '.') + '/.wally_swap_test',
     'log_level': 'warn'
 }
 gdk.init(GDK_INIT_DETAILS)
-LBTC_ASSET = gdk.get_networks()[NETWORK]['policy_asset']
 LBTC_SATOSHI = int(1e8)
 LBTC_FEE_SATOSHI = 5000
 ASSET_SATOSHI = int(1e8)
-USE_AMP = True
+# ACCOUNT_TYPE choices:
+# Multisig: '2of2' (Non-AMP, default) or '2of2_no_recovery' (AMP).
+# Singlesig: 'p2sh-p2wpkh' (default), 'p2wpkh', 'p2pkh'
+ACCOUNT_TYPE = '2of2_no_recovery'
+
+NETWORKS = gdk.get_networks()
+NETWORK_INFO = NETWORKS[NETWORK]
+LBTC_ASSET = NETWORK_INFO['policy_asset']
+if NETWORK_INFO['server_type'] == 'electrum':
+    # Hack the RPC port to 19002 for testing
+    # FIXME: Make this the gdk default for electrum-localtest, or add a localtest
+    NETWORK_INFO['electrum_url'] = NETWORKS['localtest']['electrum_url']
+    gdk.register_network(NETWORK, NETWORK_INFO)
 
 def h2b(h):
     return hex_to_bytes(h)
@@ -65,11 +77,11 @@ def gdk_create_session(mnemonic):
     session.register_user({}, credentials).resolve()
     session.post_login_data = session.login_user({}, credentials).resolve()
     sa = 0 # Default to the initial subaccount
-    if USE_AMP:
-        # Create an AMP subaccount
+    if ACCOUNT_TYPE in ['2of2_no_recovery', 'p2wpkh', 'p2pkh']:
+        # Non-default subaccount type: create it
         sa = session.create_subaccount({
-            'name': 'amp_swap_test',
-            'type': '2of2_no_recovery'}).resolve()['pointer']
+            'name': 'wally_swap_test',
+            'type': ACCOUNT_TYPE}).resolve()['pointer']
     session.subaccount = sa
     return session
 
