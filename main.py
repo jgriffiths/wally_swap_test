@@ -37,7 +37,7 @@ def user_key_from_utxo(session, utxo):
     return derived_extkey
 
 def add_input_utxo(session, psbt, utxo, addr):
-    # Add a users UTXO from gdk as a PSBT input
+    # Add a users UTXO from gdk as a PSET input
     if 'script' in utxo:
         # FIXME: script missing from singlesig
         assert utxo['script'] == addr['blinding_script']
@@ -138,31 +138,23 @@ def create_bob_full_swap_psbt(bob, psbt, asset_details):
     psbt_add_tx_output_at(psbt, output_idx + 1, 0, fee_txout)
     return psbt
 
-def get_blinding_data(alice, bob):
-    # Get the input blinding data required to blind the psbt
-    values, vbfs, assets, abfs = [map_init(2, None) for _ in range(4)]
-    # Input 0 is Alice's L-BTC
-    map_add_integer(values, 0, tx_confidential_value_from_satoshi(alice.lbtc_utxo['satoshi']))
-    map_add_integer(vbfs, 0, h2b_rev(alice.lbtc_utxo["amountblinder"]))
-    map_add_integer(assets, 0, h2b_rev(LBTC_ASSET))
-    map_add_integer(abfs, 0, h2b_rev(alice.lbtc_utxo["assetblinder"]))
-    # Input 1 is Bob's ASSET
-    map_add_integer(values, 1, tx_confidential_value_from_satoshi(bob.asset_utxo['satoshi']))
-    map_add_integer(vbfs, 1, h2b_rev(bob.asset_utxo["amountblinder"]))
-    map_add_integer(assets, 1, h2b_rev(bob.asset_utxo['asset_id']))
-    map_add_integer(abfs, 1, h2b_rev(bob.asset_utxo["assetblinder"]))
+def set_blinding_data(idx, utxo, values, vbfs, assets, abfs):
+    map_add_integer(values, idx, tx_confidential_value_from_satoshi(utxo['satoshi']))
+    map_add_integer(vbfs, idx, h2b_rev(utxo["amountblinder"]))
+    map_add_integer(assets, idx, h2b_rev(utxo["asset_id"]))
+    map_add_integer(abfs, idx, h2b_rev(utxo["assetblinder"]))
+
+def get_entropy(num_outputs_to_blind):
     # For each output to blind, we need 32 bytes of entropy for each of:
     # - Output assetblinder
     # - Output amountblinder
     # - Ephemeral rangeproof ECDH key
     # - Explicit value rangeproof
     # - Surjectionproof seed
-    num_outputs_to_blind = 2
-    entropy = secrets.token_bytes(num_outputs_to_blind * 5 * 32)
-    return values, vbfs, assets, abfs, entropy
+    return secrets.token_bytes(num_outputs_to_blind * 5 * 32)
 
 def get_blinding_nonce(psbt, ephemeral_keys, output_index):
-    ephemeral_key = map_get_item(ephemeral_keys, output_index)
+    ephemeral_key = map_get_item(ephemeral_keys, 0)
     blinding_pubkey = psbt_get_output_blinding_public_key(psbt, output_index)
     return ecdh_nonce_hash(blinding_pubkey, ephemeral_key)
 
@@ -173,43 +165,64 @@ if __name__ == '__main__':
 
     # Set up Alice and Bob with UTXOs to swap
     alice = setup_alice()
-    bob = setup_bob(asset_details)
-
-    # Alice then Bob add their inputs and outputs to the swap PSET
-    psbt = psbt_init(2, 0, 0, 0, WALLY_PSBT_INIT_PSET)
-    psbt = create_alice_partial_swap_psbt(alice, psbt, asset_details)
-    psbt = create_bob_full_swap_psbt(bob, psbt, asset_details)
-
     print('Alice UTXO: ' + json.dumps(alice.lbtc_utxo, indent=2))
     print('Alice L-BTC Address: ' + json.dumps(alice.lbtc_address, indent=2))
+    bob = setup_bob(asset_details)
     print('Bob UTXO: ' + json.dumps(bob.asset_utxo, indent=2))
     print('Bob ASSET Address: ' + json.dumps(bob.asset_address, indent=2))
 
-    # PSET now has both inputs: set Blinder Index for each output.
+    # Alice adds her input and output to a new swap PSET
+    psbt = psbt_init(2, 0, 0, 0, WALLY_PSBT_INIT_PSET)
+    psbt = create_alice_partial_swap_psbt(alice, psbt, asset_details)
+    # Along with the PSET, Alice must send her input blinding info
+    alice_values, alice_vbfs, alice_assets, alice_abfs = [map_init(1, None) for _ in range(4)]
+    set_blinding_data(0, alice.lbtc_utxo,
+                      alice_values, alice_vbfs, alice_assets, alice_abfs)
+
+    # Alice sends the resulting PSET and blinding info to Bob
+    psbt_b64_to_send = psbt_to_base64(psbt, 0)
+
+
+    # Bob adds his input and output to the swap PSET
+    psbt = psbt_from_base64(psbt_b64_to_send)
+    psbt = create_bob_full_swap_psbt(bob, psbt, asset_details)
+    # And collects his own blinding data
+    bob_values, bob_vbfs, bob_assets, bob_abfs = [map_init(1, None) for _ in range(4)]
+    set_blinding_data(1, bob.asset_utxo,
+                      bob_values, bob_vbfs, bob_assets, bob_abfs)
+
+    # PSET is now complete: set Blinder Index for each output.
     # Ordinarily, the blinder index would refer to an input the user owns,
     # however for swaps this is reversed.
     psbt_set_output_blinder_index(psbt, 0, 1) # Alices output comes from Bob
     psbt_set_output_blinder_index(psbt, 1, 0) # Bobs output comes from Alice
-    print('Decoded pre-blinding PSBT: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
 
-    # Get the blinding data required and blind the PSBT
-    # Note that any party can blind once they have the given blinding data.
-    # TODO: Agree on a method to pass blinding data out-of-band.
-    values, vbfs, assets, abfs, entropy = get_blinding_data(alice, bob)
+    # Perform the blinding in two steps for testing purposes.
+    # 1. Bob blinds his output (1) using Alices values and blinders.
+    entropy = get_entropy(1)
     flags = 0
-    ephemeral_keys = psbt_blind(psbt, values, vbfs, assets, abfs, entropy, flags)
-    b64 = psbt_to_base64(psbt, 0)
+    #bob_ephemeral_keys = psbt_blind(psbt, values, vbfs, assets, abfs, entropy, flags)
+    bob_ephemeral_keys = psbt_blind(psbt, alice_values, alice_vbfs,
+                                    alice_assets, alice_abfs, entropy, flags)
+    bob_nonce = get_blinding_nonce(psbt, bob_ephemeral_keys, 1)
+    print('Decoded pre-blinding PSET: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
 
-    # Get the blinding nonces for both blinded outputs.
+    # 2. Bob blinds Alices output (0) using his values and blinders
+    entropy = get_entropy(1)
+    alice_ephemeral_keys = psbt_blind(psbt, bob_values, bob_vbfs,
+                                      bob_assets, bob_abfs, entropy, flags)
+    alice_nonce = get_blinding_nonce(psbt, alice_ephemeral_keys, 0)
+
+    # Pass the blinding nonces for both blinded outputs.
     # These are only required for AMP subaccounts, but we pass them
     # in all cases since they are cheap to compute.
-    alice_nonce = get_blinding_nonce(psbt, ephemeral_keys, 0)
-    bob_nonce = get_blinding_nonce(psbt, ephemeral_keys, 1)
+    # Note the empty nonce for the final fee output which is never blinded.
     nonces = [b2h(alice_nonce), b2h(bob_nonce), '']
 
-    print('Blinded PSBT: ' + b64)
-    #print('Decoded Blinded PSBT: ' + core_cmd('decodepsbt', b64))
-    #print('Analyzed Blinded PSBT: ' + core_cmd('analyzepsbt', b64))
+    b64 = psbt_to_base64(psbt, 0)
+    print('Blinded PSET: ' + b64)
+    #print('Decoded Blinded PSET: ' + core_cmd('decodepsbt', b64))
+    #print('Analyzed Blinded PSET: ' + core_cmd('analyzepsbt', b64))
 
     if 'electrum' not in NETWORK:
         # Multisig
@@ -220,37 +233,37 @@ if __name__ == '__main__':
         bob_gdk_details = bob.psbt_get_details({'psbt': b64, 'utxos': [bob.asset_utxo]}).resolve()
         print('Bob gdk psbt_get_details: ' + json.dumps(bob_gdk_details, indent=2))
 
-        # Bob signs his asset input in the PSBT
+        # Bob signs his asset input in the PSET
         bob_sign_details = bob.psbt_sign({
             'psbt': b64,
             'utxos': [bob.asset_utxo],
             'blinding_nonces': nonces}).resolve()
         b64 = bob_sign_details['psbt']
-        print('Bob signed PSBT: ' + json.dumps(bob_sign_details, indent=2))
+        print('Bob signed PSET: ' + json.dumps(bob_sign_details, indent=2))
 
-        # Alice then signs her LBTC input in the PSBT
+        # Alice then signs her LBTC input in the PSET
         alice_sign_details = alice.psbt_sign({
             'psbt': b64,
             'utxos': [alice.lbtc_utxo],
             'blinding_nonces': nonces}).resolve()
         b64 = alice_sign_details['psbt']
-        print('Alice signed PSBT: ' + json.dumps(alice_sign_details, indent=2))
+        print('Alice signed PSET: ' + json.dumps(alice_sign_details, indent=2))
     else:
         # Singlesig
-        # Bob signs his asset input in the PSBT
+        # Bob signs his asset input in the PSET
         psbt = psbt_from_base64(b64)
         bob_extkey = user_key_from_utxo(bob, bob.asset_utxo)
         psbt_sign(psbt, bip32_key_get_priv_key(bob_extkey), EC_FLAG_GRIND_R)
 
-        # Alice then signs her LBTC input in the PSBT
+        # Alice then signs her LBTC input in the PSET
         alice_extkey = user_key_from_utxo(alice, alice.lbtc_utxo)
         psbt_sign(psbt, bip32_key_get_priv_key(alice_extkey), EC_FLAG_GRIND_R)
         b64 = psbt_to_base64(psbt, 0)
 
-    #print('Decoded Signed PSBT: ' + core_cmd('decodepsbt', b64))
-    #print('Analyzed Signed PSBT: ' + core_cmd('analyzepsbt', b64))
+    #print('Decoded Signed PSET: ' + core_cmd('decodepsbt', b64))
+    #print('Analyzed Signed PSET: ' + core_cmd('analyzepsbt', b64))
 
-    # Alice finalizes the signed PSBT to get the signed raw transaction hex
+    # Alice finalizes the signed PSET to get the signed raw transaction hex
     psbt = psbt_from_base64(b64)
     if 'electrum' not in NETWORK:
         # We set the redeem scripts back to their correct value here.
