@@ -1,27 +1,34 @@
 from utils import *
 import secrets
 
-def setup_alice():
-    # Alice gets LBTC_SATOSHI + LBTC_FEE_SATOSHI L-BTC @ alice.lbtc_address, with
+def setup_alice(asset_swap_details):
+    # Alice gets LBTC_SATOSHI L-BTC @ alice.lbtc_address, with
     # the UTXO in alice.lbtc_utxo
-    alice = gdk_create_session(gdk.generate_mnemonic())
+    global ALICE_MNEMONIC
+    if not ALICE_MNEMONIC:
+        ALICE_MNEMONIC = gdk.generate_mnemonic()
+        print('Alice mnemonic: ' + ALICE_MNEMONIC)
+    alice = gdk_create_session(ALICE_MNEMONIC)
     alice.asset_id = LBTC_ASSET
     addr_details = {'subaccount': alice.subaccount}
     alice.lbtc_address = alice.get_receive_address(addr_details).resolve()
-    amount = LBTC_SATOSHI + LBTC_FEE_SATOSHI
-    core_send_blinded(LBTC_ASSET, alice.lbtc_address['address'], amount)
-    alice.lbtc_utxo = gdk_wait_for_utxo(alice, alice.subaccount, LBTC_ASSET)
+    core_send_blinded(LBTC_ASSET, alice.lbtc_address['address'], asset_swap_details)
+    alice.lbtc_utxo = gdk_wait_for_utxo(alice, LBTC_ASSET, alice.lbtc_address['pointer'])
     return alice
 
-def setup_bob(asset_details):
+def setup_bob(asset_swap_details):
     # Bob gets ASSET_SATOSHI bob.asset_id @ bob.asset_address, with
     # the UTXO in bob.asset_utxo
-    bob = gdk_create_session(gdk.generate_mnemonic())
-    bob.asset_id = asset_details['asset']
+    global BOB_MNEMONIC
+    if not BOB_MNEMONIC:
+        BOB_MNEMONIC = gdk.generate_mnemonic()
+        print('Bob mnemonic: ' + BOB_MNEMONIC)
+    bob = gdk_create_session(BOB_MNEMONIC)
+    bob.asset_id = asset_swap_details['asset_id']
     addr_details = {'subaccount': bob.subaccount}
     bob.asset_address = bob.get_receive_address(addr_details).resolve()
-    core_send_blinded(bob.asset_id, bob.asset_address['address'], ASSET_SATOSHI)
-    bob.asset_utxo = gdk_wait_for_utxo(bob, bob.subaccount, bob.asset_id)
+    core_send_blinded(bob.asset_id, bob.asset_address['address'], asset_swap_details)
+    bob.asset_utxo = gdk_wait_for_utxo(bob, bob.asset_id, bob.asset_address['pointer'])
     return bob
 
 def user_key_from_utxo(session, utxo):
@@ -101,7 +108,7 @@ def add_input_utxo(session, psbt, utxo, addr):
         psbt_set_input_keypaths(psbt, idx, keypaths)
     return idx
 
-def create_alice_partial_swap_psbt(alice, psbt, asset_details):
+def create_alice_partial_swap_psbt(alice, psbt, asset_swap_details):
     # Add Alice's L-BTC input
     idx = add_input_utxo(alice, psbt, alice.lbtc_utxo, alice.lbtc_address)
 
@@ -109,15 +116,15 @@ def create_alice_partial_swap_psbt(alice, psbt, asset_details):
     addr_details = {'subaccount': alice.subaccount}
     addr = alice.get_receive_address(addr_details).resolve()
     alice.asset_receive_address = addr
-    asset_tag = bytearray([1]) + h2b_rev(asset_details['asset']) # Unblinded
-    value = tx_confidential_value_from_satoshi(asset_details['satoshi']) # Unblinded
+    asset_tag = bytearray([1]) + h2b_rev(asset_swap_details['asset_id']) # Unblinded
+    value = tx_confidential_value_from_satoshi(asset_swap_details['satoshi']) # Unblinded
     txout = tx_elements_output_init(h2b(addr['blinding_script']), asset_tag,
                                     value, h2b(addr['blinding_key']))
     output_idx = psbt_get_num_outputs(psbt)
     psbt_add_tx_output_at(psbt, output_idx, 0, txout)
     return psbt
 
-def create_bob_full_swap_psbt(bob, psbt, asset_details):
+def create_bob_full_swap_psbt(bob, psbt, asset_swap_details):
     # Add Bob's ASSET input
     idx = add_input_utxo(bob, psbt, bob.asset_utxo, bob.asset_address)
 
@@ -126,7 +133,8 @@ def create_bob_full_swap_psbt(bob, psbt, asset_details):
     addr = bob.get_receive_address(bob_details).resolve()
     bob.lbtc_receive_address = addr
     lbtc_tag = bytearray([1]) + h2b_rev(LBTC_ASSET) # Unblinded
-    value = tx_confidential_value_from_satoshi(LBTC_SATOSHI) # Unblinded
+    satoshi = VALUES.LBTC_SATOSHI - LBTC_FEE_SATOSHI
+    value = tx_confidential_value_from_satoshi(satoshi) # Unblinded
     txout = tx_elements_output_init(h2b(addr['blinding_script']), lbtc_tag,
                                     value, h2b(addr['blinding_key']))
     output_idx = psbt_get_num_outputs(psbt)
@@ -160,20 +168,20 @@ def get_blinding_nonce(psbt, ephemeral_keys, output_index):
 
 if __name__ == '__main__':
     # Regtest: fund the core wallet with LBTC and issue the asset
-    asset_details = core_fund()
-    print('Asset details: ', json.dumps(asset_details, indent=2))
+    asset_swap_details = core_fund()
+    print('Asset details: ', json.dumps(asset_swap_details, indent=2))
 
     # Set up Alice and Bob with UTXOs to swap
-    alice = setup_alice()
+    alice = setup_alice(asset_swap_details)
     print('Alice UTXO: ' + json.dumps(alice.lbtc_utxo, indent=2))
     print('Alice L-BTC Address: ' + json.dumps(alice.lbtc_address, indent=2))
-    bob = setup_bob(asset_details)
+    bob = setup_bob(asset_swap_details)
     print('Bob UTXO: ' + json.dumps(bob.asset_utxo, indent=2))
     print('Bob ASSET Address: ' + json.dumps(bob.asset_address, indent=2))
 
     # Alice adds her input and output to a new swap PSET
     psbt = psbt_init(2, 0, 0, 0, WALLY_PSBT_INIT_PSET)
-    psbt = create_alice_partial_swap_psbt(alice, psbt, asset_details)
+    psbt = create_alice_partial_swap_psbt(alice, psbt, asset_swap_details)
     # Along with the PSET, Alice must send her input blinding info
     alice_values, alice_vbfs, alice_assets, alice_abfs = [map_init(1, None) for _ in range(4)]
     set_blinding_data(0, alice.lbtc_utxo,
@@ -185,7 +193,7 @@ if __name__ == '__main__':
 
     # Bob adds his input and output to the swap PSET
     psbt = psbt_from_base64(psbt_b64_to_send)
-    psbt = create_bob_full_swap_psbt(bob, psbt, asset_details)
+    psbt = create_bob_full_swap_psbt(bob, psbt, asset_swap_details)
     # And collects his own blinding data
     bob_values, bob_vbfs, bob_assets, bob_abfs = [map_init(1, None) for _ in range(4)]
     set_blinding_data(1, bob.asset_utxo,
@@ -205,7 +213,8 @@ if __name__ == '__main__':
     bob_ephemeral_keys = psbt_blind(psbt, alice_values, alice_vbfs,
                                     alice_assets, alice_abfs, entropy, flags)
     bob_nonce = get_blinding_nonce(psbt, bob_ephemeral_keys, 1)
-    print('Decoded pre-blinding PSET: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
+    print('Pre-blinding PSET: ' + psbt_to_base64(psbt, 0))
+    #print('Decoded pre-blinding PSET: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
 
     # 2. Bob blinds Alices output (0) using his values and blinders
     entropy = get_entropy(1)
@@ -275,23 +284,25 @@ if __name__ == '__main__':
     tx = psbt_extract(psbt)
     tx_hex = tx_to_hex(tx, WALLY_TX_FLAG_USE_WITNESS)
 
-    # Just for testing, verify that core and wally finalize to the same tx
-    core_finalized = json.loads(core_cmd('finalizepsbt', b64, 'true'))
-    assert tx_hex == core_finalized['hex']
+    if 'localtest' in NETWORK:
+        # Just for testing, verify that core and wally finalize to the same tx
+        core_finalized = json.loads(core_cmd('finalizepsbt', b64, 'true'))
+        assert tx_hex == core_finalized['hex']
 
     # Alice then sends the transaction via gdk (it can be broadcast by any method)
     txid = alice.broadcast_transaction(tx_hex)
     print('Sent Txid: ' + txid)
 
     # Wait for Alice and Bob to see the new tx, updating their UTXOs
-    gdk_wait_for_utxo(alice, alice.subaccount, bob.asset_id)
+    gdk_wait_for_utxo(alice, bob.asset_id, alice.lbtc_address['pointer'] + 1)
     alice_utxos = alice.get_unspent_outputs({'subaccount': alice.subaccount, 'num_confs': 0}).resolve()
     alice_utxos = alice_utxos['unspent_outputs']
     print('Alice UTXOs after swap:' + json.dumps(alice_utxos, indent=2))
 
-    gdk_wait_for_utxo(bob, bob.subaccount, alice.asset_id)
+    gdk_wait_for_utxo(bob, alice.asset_id, bob.asset_address['pointer'] + 1)
     bob_utxos = bob.get_unspent_outputs({'subaccount': bob.subaccount, 'num_confs': 0}).resolve()
     bob_utxos = bob_utxos['unspent_outputs']
     print('Bob UTXOs after swap:' + json.dumps(bob_utxos, indent=2))
 
-    # TODO: Make sure the newly received UTXOs are spendable
+    # TODO: Make sure the newly received UTXOs are spendable by sending them
+    # back to core (or the faucet, for testnet)
