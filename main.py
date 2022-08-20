@@ -209,9 +209,8 @@ if __name__ == '__main__':
     # 1. Bob blinds his output (1) using Alices values and blinders.
     entropy = get_entropy(1)
     flags = 0
-    #bob_ephemeral_keys = psbt_blind(psbt, values, vbfs, assets, abfs, entropy, flags)
     bob_ephemeral_keys = psbt_blind(psbt, alice_values, alice_vbfs,
-                                    alice_assets, alice_abfs, entropy, flags)
+                                    alice_assets, alice_abfs, entropy, 1, flags)
     bob_nonce = get_blinding_nonce(psbt, bob_ephemeral_keys, 1)
     print('Pre-blinding PSET: ' + psbt_to_base64(psbt, 0))
     #print('Decoded pre-blinding PSET: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
@@ -219,7 +218,7 @@ if __name__ == '__main__':
     # 2. Bob blinds Alices output (0) using his values and blinders
     entropy = get_entropy(1)
     alice_ephemeral_keys = psbt_blind(psbt, bob_values, bob_vbfs,
-                                      bob_assets, bob_abfs, entropy, flags)
+                                      bob_assets, bob_abfs, entropy, 0, flags)
     alice_nonce = get_blinding_nonce(psbt, alice_ephemeral_keys, 0)
 
     # Pass the blinding nonces for both blinded outputs.
