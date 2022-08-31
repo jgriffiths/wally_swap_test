@@ -56,14 +56,8 @@ def add_input_utxo(session, psbt, utxo, addr):
                          tx_input_init(h2b_rev(utxo['txhash']), utxo['pt_idx'],
                                        seq, None, None))
 
-    # Non-witness UTXO
-    if 'electrum' not in NETWORK:
-        # Get from gdk (with caching)
-        funding_tx_hex = session.get_transaction_details(utxo['txhash'])['transaction']
-    else:
-        # FIXME: singlesig strips the tx witness data
-        # Get from core (for testing only)
-        funding_tx_hex = core_cmd('getrawtransaction', utxo['txhash'])
+    # Non-witness UTXO: Get from gdk (with caching)
+    funding_tx_hex = session.get_transaction_details(utxo['txhash'])['transaction']
     funding_tx = tx_from_hex(funding_tx_hex, WALLY_TX_FLAG_USE_ELEMENTS)
     # Not needed for non-segwit/Liquid
     #psbt_set_input_utxo(psbt, idx, funding_tx)
