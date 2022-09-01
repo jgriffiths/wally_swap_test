@@ -123,8 +123,8 @@ def create_bob_full_swap_psbt(bob, psbt, asset_swap_details):
     idx = add_input_utxo(bob, psbt, bob.asset_utxo, bob.asset_address)
 
     # Add Bob's L-BTC output
-    bob_details = {'subaccount': alice.subaccount}
-    addr = bob.get_receive_address(bob_details).resolve()
+    addr_details = {'subaccount': bob.subaccount}
+    addr = bob.get_receive_address(addr_details).resolve()
     bob.lbtc_receive_address = addr
     lbtc_tag = bytearray([1]) + h2b_rev(LBTC_ASSET) # Unblinded
     satoshi = VALUES.LBTC_SATOSHI - LBTC_FEE_SATOSHI
