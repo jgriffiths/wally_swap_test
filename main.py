@@ -10,10 +10,16 @@ def setup_alice(asset_swap_details):
         print('Alice mnemonic: ' + ALICE_MNEMONIC)
     alice = gdk_create_session(ALICE_MNEMONIC)
     alice.asset_id = LBTC_ASSET
-    addr_details = {'subaccount': alice.subaccount}
+    addr_details = {'subaccount': alice.subaccount['pointer']}
     alice.lbtc_address = alice.get_receive_address(addr_details).resolve()
-    core_send_blinded(LBTC_ASSET, alice.lbtc_address['address'], asset_swap_details)
-    alice.lbtc_utxo = gdk_wait_for_utxo(alice, LBTC_ASSET, alice.lbtc_address['pointer'])
+    num_confs = 0
+    sent_to = core_send_blinded(LBTC_ASSET, alice.lbtc_address['address'],
+                                asset_swap_details, alice.subaccount['receiving_id'])
+    if sent_to != alice.lbtc_address['address']:
+        alice.lbtc_address = gdk_get_address_details(alice, sent_to) # From faucet to GAID
+        assert sent_to == alice.lbtc_address['address']
+        num_confs = 1 # AMP assets must be confirmed to swap
+    alice.lbtc_utxo = gdk_wait_for_utxo(alice, LBTC_ASSET, alice.lbtc_address['pointer'], num_confs)
     return alice
 
 def setup_bob(asset_swap_details):
@@ -25,10 +31,16 @@ def setup_bob(asset_swap_details):
         print('Bob mnemonic: ' + BOB_MNEMONIC)
     bob = gdk_create_session(BOB_MNEMONIC)
     bob.asset_id = asset_swap_details['asset_id']
-    addr_details = {'subaccount': bob.subaccount}
+    addr_details = {'subaccount': bob.subaccount['pointer']}
     bob.asset_address = bob.get_receive_address(addr_details).resolve()
-    core_send_blinded(bob.asset_id, bob.asset_address['address'], asset_swap_details)
-    bob.asset_utxo = gdk_wait_for_utxo(bob, bob.asset_id, bob.asset_address['pointer'])
+    sent_to = core_send_blinded(bob.asset_id, bob.asset_address['address'],
+                                asset_swap_details, bob.subaccount['receiving_id'])
+    num_confs = 0
+    if sent_to != bob.asset_address['address']:
+        bob.asset_address = gdk_get_address_details(bob, sent_to) # From faucet to GAID
+        assert sent_to == bob.asset_address['address']
+        num_confs = 1 # AMP assets must be confirmed to swap
+    bob.asset_utxo = gdk_wait_for_utxo(bob, bob.asset_id, bob.asset_address['pointer'], num_confs)
     return bob
 
 def user_key_from_utxo(session, utxo):
@@ -107,7 +119,7 @@ def create_alice_partial_swap_psbt(alice, psbt, asset_swap_details):
     idx = add_input_utxo(alice, psbt, alice.lbtc_utxo, alice.lbtc_address)
 
     # Add Alice's ASSET output
-    addr_details = {'subaccount': alice.subaccount}
+    addr_details = {'subaccount': alice.subaccount['pointer']}
     addr = alice.get_receive_address(addr_details).resolve()
     alice.asset_receive_address = addr
     asset_tag = bytearray([1]) + h2b_rev(asset_swap_details['asset_id']) # Unblinded
@@ -123,7 +135,7 @@ def create_bob_full_swap_psbt(bob, psbt, asset_swap_details):
     idx = add_input_utxo(bob, psbt, bob.asset_utxo, bob.asset_address)
 
     # Add Bob's L-BTC output
-    addr_details = {'subaccount': bob.subaccount}
+    addr_details = {'subaccount': bob.subaccount['pointer']}
     addr = bob.get_receive_address(addr_details).resolve()
     bob.lbtc_receive_address = addr
     lbtc_tag = bytearray([1]) + h2b_rev(LBTC_ASSET) # Unblinded
@@ -288,12 +300,14 @@ if __name__ == '__main__':
 
     # Wait for Alice and Bob to see the new tx, updating their UTXOs
     gdk_wait_for_utxo(alice, bob.asset_id, alice.lbtc_address['pointer'] + 1)
-    alice_utxos = alice.get_unspent_outputs({'subaccount': alice.subaccount, 'num_confs': 0}).resolve()
+    alice_utxos = alice.get_unspent_outputs({'subaccount': alice.subaccount['pointer'],
+                                             'num_confs': 0}).resolve()
     alice_utxos = alice_utxos['unspent_outputs']
     print('Alice UTXOs after swap:' + json.dumps(alice_utxos, indent=2))
 
     gdk_wait_for_utxo(bob, alice.asset_id, bob.asset_address['pointer'] + 1)
-    bob_utxos = bob.get_unspent_outputs({'subaccount': bob.subaccount, 'num_confs': 0}).resolve()
+    bob_utxos = bob.get_unspent_outputs({'subaccount': bob.subaccount['pointer'],
+                                         'num_confs': 0}).resolve()
     bob_utxos = bob_utxos['unspent_outputs']
     print('Bob UTXOs after swap:' + json.dumps(bob_utxos, indent=2))
 
