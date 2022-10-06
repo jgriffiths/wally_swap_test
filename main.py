@@ -105,6 +105,12 @@ def add_input_utxo(session, psbt, utxo, addr):
 
     psbt_set_input_redeem_script(psbt, idx, script)
 
+    if ADD_EXPLICIT_PROOFS:
+        psbt_generate_input_explicit_proofs(psbt, idx, utxo['satoshi'],
+                                            h2b_rev(utxo["asset_id"]),
+                                            h2b_rev(utxo["assetblinder"]),
+                                            h2b_rev(utxo["amountblinder"]),
+                                            secrets.token_bytes(32))
     # Key path
     if pubkey:
         user_extkey = user_key_from_utxo(session, utxo)

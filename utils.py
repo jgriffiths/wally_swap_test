@@ -39,6 +39,13 @@ LBTC_FEE_SATOSHI = 500
 # allow. Set 0 to disable.
 PSBT_PARSE_MODE = WALLY_PSBT_PARSE_FLAG_STRICT
 
+# Whether to add input explicit value/asset proofs for non-intermediated swap scenarios.
+# NOTE: This exposes the unblinded value/asset and should only be used for
+#       swaps and other co-operatively created/blinded/signed txs where
+#       the other party requires this information to blind, but you do not
+#       wish to share blinding factors, for example the liquidex swap protocol.
+ADD_EXPLICIT_PROOFS = False
+
 NETWORKS = gdk.get_networks()
 NETWORK_INFO = NETWORKS[NETWORK]
 LBTC_ASSET = NETWORK_INFO['policy_asset']
