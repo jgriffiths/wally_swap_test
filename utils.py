@@ -34,6 +34,11 @@ class VALUES:
 # Amount of L-BTC to pay in fees
 LBTC_FEE_SATOSHI = 500
 
+# Parsing flags for PSETs. WALLY_PSBT_PARSE_FLAG_STRICT is strongly suggested
+# in order to catch malicious or otherwise invalid PSETs that Elements will
+# allow. Set 0 to disable.
+PSBT_PARSE_MODE = WALLY_PSBT_PARSE_FLAG_STRICT
+
 NETWORKS = gdk.get_networks()
 NETWORK_INFO = NETWORKS[NETWORK]
 LBTC_ASSET = NETWORK_INFO['policy_asset']

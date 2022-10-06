@@ -198,7 +198,7 @@ if __name__ == '__main__':
 
 
     # Bob adds his input and output to the swap PSET
-    psbt = psbt_from_base64(psbt_b64_to_send)
+    psbt = psbt_from_base64(psbt_b64_to_send, PSBT_PARSE_MODE)
     psbt = create_bob_full_swap_psbt(bob, psbt, asset_swap_details)
     # And collects his own blinding data
     bob_values, bob_vbfs, bob_assets, bob_abfs = [map_init(1, None) for _ in range(4)]
@@ -265,7 +265,7 @@ if __name__ == '__main__':
     else:
         # Singlesig
         # Bob signs his asset input in the PSET
-        psbt = psbt_from_base64(b64)
+        psbt = psbt_from_base64(b64, PSBT_PARSE_MODE)
         bob_extkey = user_key_from_utxo(bob, bob.asset_utxo)
         psbt_sign(psbt, bip32_key_get_priv_key(bob_extkey), EC_FLAG_GRIND_R)
 
@@ -278,7 +278,7 @@ if __name__ == '__main__':
     #print('Analyzed Signed PSET: ' + core_cmd('analyzepsbt', b64))
 
     # Alice finalizes the signed PSET to get the signed raw transaction hex
-    psbt = psbt_from_base64(b64)
+    psbt = psbt_from_base64(b64, PSBT_PARSE_MODE)
     if 'electrum' not in NETWORK:
         # We set the redeem scripts back to their correct value here.
         # This doesn't seem to be required for segwit inputs but
