@@ -27,3 +27,14 @@ Run the test via `main.py`:
 ```
 $ python main.py
 ```
+
+## Docker
+
+You can run the test harness under docker if your environment isn't suitable for whatever reason.
+
+Edit `utils.py` as needed then:
+
+```
+docker build -t wally-swap-test .
+docker run wally-swap-test
+```
