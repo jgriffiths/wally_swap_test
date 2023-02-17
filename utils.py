@@ -54,11 +54,6 @@ if 'localtest' in NETWORK:
     CORE_CLI = '/home/user/develop/work/ga-backend/ga_setup/liquidd/bin/liquid-cli'
     CORE_CONF = '-conf=/home/user/develop/work/ga-backend/ga_setup/.liquidd.conf'
 
-    if NETWORK_INFO['server_type'] == 'electrum':
-        # Hack the RPC port to 19002 for testing
-        # FIXME: Make this the gdk default for electrum-localtest
-        NETWORK_INFO['electrum_url'] = NETWORKS['localtest']['electrum_url']
-        gdk.register_network(NETWORK, NETWORK_INFO)
 
 def h2b(h):
     return hex_to_bytes(h)

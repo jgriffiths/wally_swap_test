@@ -44,9 +44,7 @@ def setup_bob(asset_swap_details):
     return bob
 
 def user_key_from_utxo(session, utxo):
-    seed = bytearray(BIP39_SEED_LEN_512)
-    written = bip39_mnemonic_to_seed(session.mnemonic, None, seed)
-    seed = seed[:written]
+    seed = bip39_mnemonic_to_seed512(session.mnemonic, None)
     version = BIP32_VER_TEST_PRIVATE if 'test' in NETWORK else BIP32_VER_MAIN_PRIVATE
     master_extkey = bip32_key_from_seed(seed, version, 0)
     path = utxo['user_path']
@@ -292,7 +290,7 @@ if __name__ == '__main__':
         psbt_set_input_redeem_script(psbt, 0, h2b(alice.lbtc_address['script']))
         psbt_set_input_redeem_script(psbt, 1, h2b(bob.asset_address['script']))
     psbt_finalize(psbt)
-    tx = psbt_extract(psbt)
+    tx = psbt_extract(psbt, 0)
     tx_hex = tx_to_hex(tx, WALLY_TX_FLAG_USE_WITNESS)
 
     if 'localtest' in NETWORK:
