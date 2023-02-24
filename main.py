@@ -87,18 +87,11 @@ def add_input_utxo(session, psbt, utxo, addr):
     # Redeemscript
     pubkey = h2b(utxo['public_key']) if 'public_key' in utxo else None
     if utxo['address_type'] in ['csv', 'p2wsh']:
-        # Note: 'p2wsh' for multisig is p2sh wrapped p2wsh.
-        # For Green multisig swaps, Green server signing currently requires
-        # that swap inputs are *provably* segwit in order to eliminate
-        # malleation from the processing state machine.
-        # For p2sh wrapped inputs, this currently requires passing
-        # the witness program as the redeem script when signing; The server
-        # uses this to validate the input before signing with the actual
-        # script.
-        # TODO: This isn't documented in the gdk or backend API docs, and
-        # should probably be done with a PSET input extension field instead.
-        script = h2b(addr['script'])
-        script = witness_program_from_bytes(script, WALLY_SCRIPT_SHA256)
+        # Note: 'csv' and 'p2wsh' for multisig is p2sh wrapped p2wsh.
+        witness_script = utxo['prevout_script']
+        psbt_set_input_witness_script(psbt, idx, h2b(witness_script))
+        scriptpubkey = h2b(addr['script'])
+        script = witness_program_from_bytes(scriptpubkey, WALLY_SCRIPT_SHA256)
         psbt_set_input_redeem_script(psbt, idx, script)
     elif utxo['address_type'] in ['p2sh-p2wpkh']:
         script = witness_program_from_bytes(pubkey, WALLY_SCRIPT_HASH160)
@@ -247,22 +240,24 @@ if __name__ == '__main__':
         print('Decoded Blinded PSET: ' + core_cmd('decodepsbt', b64))
         print('Analyzed Blinded PSET: ' + core_cmd('analyzepsbt', b64))
 
-    if 'electrum' not in NETWORK:
-        # Multisig
-        # psbt_get_details from gdk can be used to examine each parties inputs and outputs
-        alice_gdk_details = alice.psbt_get_details({'psbt': b64, 'utxos': [alice.lbtc_utxo]}).resolve()
-        print('Alice gdk psbt_get_details: ' + json.dumps(alice_gdk_details, indent=2))
+    # psbt_get_details from gdk can be used to examine each parties inputs and outputs
+    alice_gdk_details = alice.psbt_get_details({'psbt': b64, 'utxos': [alice.lbtc_utxo]}).resolve()
+    print('Alice gdk psbt_get_details: ' + json.dumps(alice_gdk_details, indent=2))
 
-        bob_gdk_details = bob.psbt_get_details({'psbt': b64, 'utxos': [bob.asset_utxo]}).resolve()
-        print('Bob gdk psbt_get_details: ' + json.dumps(bob_gdk_details, indent=2))
+    bob_gdk_details = bob.psbt_get_details({'psbt': b64, 'utxos': [bob.asset_utxo]}).resolve()
+    print('Bob gdk psbt_get_details: ' + json.dumps(bob_gdk_details, indent=2))
 
+    if SIGN_WITH_GDK or 'electrum' not in NETWORK:
+        # Multisig, or singlesig and we are signing with gdk
         # Bob signs his asset input in the PSET
         bob_sign_details = bob.psbt_sign({
             'psbt': b64,
             'utxos': [bob.asset_utxo],
             'blinding_nonces': nonces}).resolve()
         b64 = bob_sign_details['psbt']
-        print('Bob signed PSET: ' + json.dumps(bob_sign_details, indent=2))
+        print('Bob signed PSET details: ' + json.dumps(bob_sign_details, indent=2))
+        if DECODE:
+            print('Decoded Bob signed PSET: ' + core_cmd('decodepsbt', b64))
 
         # Alice then signs her LBTC input in the PSET
         alice_sign_details = alice.psbt_sign({
@@ -270,9 +265,11 @@ if __name__ == '__main__':
             'utxos': [alice.lbtc_utxo],
             'blinding_nonces': nonces}).resolve()
         b64 = alice_sign_details['psbt']
-        print('Alice signed PSET: ' + json.dumps(alice_sign_details, indent=2))
+        print('Alice signed PSET details: ' + json.dumps(alice_sign_details, indent=2))
+        if DECODE:
+            print('Decoded Alice signed PSET: ' + core_cmd('decodepsbt', b64))
     else:
-        # Singlesig
+        # Singlesig, signing manually
         # Bob signs his asset input in the PSET
         psbt = psbt_from_base64(b64, PSBT_PARSE_MODE)
         bob_extkey = user_key_from_utxo(bob, bob.asset_utxo)
@@ -289,12 +286,6 @@ if __name__ == '__main__':
 
     # Alice finalizes the signed PSET to get the signed raw transaction hex
     psbt = psbt_from_base64(b64, PSBT_PARSE_MODE)
-    if 'electrum' not in NETWORK:
-        # We set the redeem scripts back to their correct value here.
-        # This doesn't seem to be required for segwit inputs but
-        # it seems like good manners in general.
-        psbt_set_input_redeem_script(psbt, 0, h2b(alice.lbtc_address['script']))
-        psbt_set_input_redeem_script(psbt, 1, h2b(bob.asset_address['script']))
     psbt_finalize(psbt)
     tx = psbt_extract(psbt, 0)
     tx_hex = tx_to_hex(tx, WALLY_TX_FLAG_USE_WITNESS)
