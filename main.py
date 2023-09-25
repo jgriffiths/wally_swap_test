@@ -99,12 +99,12 @@ def add_input_utxo(session, psbt, utxo, addr):
         # should probably be done with a PSET input extension field instead.
         script = h2b(addr['script'])
         script = witness_program_from_bytes(script, WALLY_SCRIPT_SHA256)
+        psbt_set_input_redeem_script(psbt, idx, script)
     elif utxo['address_type'] in ['p2sh-p2wpkh']:
         script = witness_program_from_bytes(pubkey, WALLY_SCRIPT_HASH160)
-    else:
+        psbt_set_input_redeem_script(psbt, idx, script)
+    elif utxo['address_type'] not in ['p2wpkh', 'p2pkh']:
         assert False, 'unknown address type ' + utxo['address_type']
-
-    psbt_set_input_redeem_script(psbt, idx, script)
 
     if ADD_EXPLICIT_PROOFS:
         psbt_generate_input_explicit_proofs(psbt, idx, utxo['satoshi'],
