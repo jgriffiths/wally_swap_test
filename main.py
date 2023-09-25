@@ -1,6 +1,9 @@
 from utils import *
 import secrets
 
+# Whether to dump the decoded PSETs using core
+DECODE=False
+
 def setup_alice(asset_swap_details):
     # Alice gets LBTC_SATOSHI L-BTC @ alice.lbtc_address, with
     # the UTXO in alice.lbtc_utxo
@@ -223,7 +226,8 @@ if __name__ == '__main__':
                                     alice_assets, alice_abfs, entropy, 1, flags)
     bob_nonce = get_blinding_nonce(psbt, bob_ephemeral_keys, 1)
     print('Pre-blinding PSET: ' + psbt_to_base64(psbt, 0))
-    #print('Decoded pre-blinding PSET: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
+    if DECODE:
+        print('Decoded pre-blinding PSET: ' + core_cmd('decodepsbt', psbt_to_base64(psbt, 0)))
 
     # 2. Bob blinds Alices output (0) using his values and blinders
     entropy = get_entropy(1)
@@ -239,8 +243,9 @@ if __name__ == '__main__':
 
     b64 = psbt_to_base64(psbt, 0)
     print('Blinded PSET: ' + b64)
-    #print('Decoded Blinded PSET: ' + core_cmd('decodepsbt', b64))
-    #print('Analyzed Blinded PSET: ' + core_cmd('analyzepsbt', b64))
+    if DECODE:
+        print('Decoded Blinded PSET: ' + core_cmd('decodepsbt', b64))
+        print('Analyzed Blinded PSET: ' + core_cmd('analyzepsbt', b64))
 
     if 'electrum' not in NETWORK:
         # Multisig
@@ -278,8 +283,9 @@ if __name__ == '__main__':
         psbt_sign(psbt, bip32_key_get_priv_key(alice_extkey), EC_FLAG_GRIND_R)
         b64 = psbt_to_base64(psbt, 0)
 
-    #print('Decoded Signed PSET: ' + core_cmd('decodepsbt', b64))
-    #print('Analyzed Signed PSET: ' + core_cmd('analyzepsbt', b64))
+    if DECODE:
+        print('Decoded Signed PSET: ' + core_cmd('decodepsbt', b64))
+        print('Analyzed Signed PSET: ' + core_cmd('analyzepsbt', b64))
 
     # Alice finalizes the signed PSET to get the signed raw transaction hex
     psbt = psbt_from_base64(b64, PSBT_PARSE_MODE)
