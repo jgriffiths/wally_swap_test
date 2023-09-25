@@ -46,6 +46,9 @@ PSBT_PARSE_MODE = WALLY_PSBT_PARSE_FLAG_STRICT
 #       wish to share blinding factors, for example the liquidex swap protocol.
 ADD_EXPLICIT_PROOFS = False
 
+# Whether to sign singlesig PSETs with gdk (otherwise, sign manually)
+SIGN_WITH_GDK = True
+
 NETWORKS = gdk.get_networks()
 NETWORK_INFO = NETWORKS[NETWORK]
 LBTC_ASSET = NETWORK_INFO['policy_asset']
