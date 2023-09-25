@@ -125,9 +125,10 @@ def create_alice_partial_swap_psbt(alice, psbt, asset_swap_details):
     asset_tag = bytearray([1]) + h2b_rev(asset_swap_details['asset_id']) # Unblinded
     value = tx_confidential_value_from_satoshi(asset_swap_details['satoshi']) # Unblinded
     txout = tx_elements_output_init(h2b(addr['blinding_script']), asset_tag,
-                                    value, h2b(addr['blinding_key']))
+                                    value, None)
     output_idx = psbt_get_num_outputs(psbt)
     psbt_add_tx_output_at(psbt, output_idx, 0, txout)
+    psbt_set_output_blinding_public_key(psbt, output_idx, h2b(addr['blinding_key']))
     return psbt
 
 def create_bob_full_swap_psbt(bob, psbt, asset_swap_details):
@@ -142,9 +143,10 @@ def create_bob_full_swap_psbt(bob, psbt, asset_swap_details):
     satoshi = VALUES.LBTC_SATOSHI - LBTC_FEE_SATOSHI
     value = tx_confidential_value_from_satoshi(satoshi) # Unblinded
     txout = tx_elements_output_init(h2b(addr['blinding_script']), lbtc_tag,
-                                    value, h2b(addr['blinding_key']))
+                                    value, None)
     output_idx = psbt_get_num_outputs(psbt)
     psbt_add_tx_output_at(psbt, output_idx, 0, txout)
+    psbt_set_output_blinding_public_key(psbt, output_idx, h2b(addr['blinding_key']))
 
     # Add the fee output
     value = tx_confidential_value_from_satoshi(LBTC_FEE_SATOSHI) # Unblinded
