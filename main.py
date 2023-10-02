@@ -60,7 +60,7 @@ def add_input_utxo(session, psbt, utxo, addr):
     # Add a users UTXO from gdk as a PSET input
     if 'script' in utxo:
         # FIXME: script missing from singlesig
-        assert utxo['script'] == addr['blinding_script']
+        assert utxo['script'] == addr['scriptpubkey']
 
     # Add the input to the psbt
     idx = psbt_get_num_inputs(psbt)
@@ -124,7 +124,7 @@ def create_alice_partial_swap_psbt(alice, psbt, asset_swap_details):
     alice.asset_receive_address = addr
     asset_tag = bytearray([1]) + h2b_rev(asset_swap_details['asset_id']) # Unblinded
     value = tx_confidential_value_from_satoshi(asset_swap_details['satoshi']) # Unblinded
-    txout = tx_elements_output_init(h2b(addr['blinding_script']), asset_tag,
+    txout = tx_elements_output_init(h2b(addr['scriptpubkey']), asset_tag,
                                     value, None)
     output_idx = psbt_get_num_outputs(psbt)
     psbt_add_tx_output_at(psbt, output_idx, 0, txout)
@@ -142,7 +142,7 @@ def create_bob_full_swap_psbt(bob, psbt, asset_swap_details):
     lbtc_tag = bytearray([1]) + h2b_rev(LBTC_ASSET) # Unblinded
     satoshi = VALUES.LBTC_SATOSHI - LBTC_FEE_SATOSHI
     value = tx_confidential_value_from_satoshi(satoshi) # Unblinded
-    txout = tx_elements_output_init(h2b(addr['blinding_script']), lbtc_tag,
+    txout = tx_elements_output_init(h2b(addr['scriptpubkey']), lbtc_tag,
                                     value, None)
     output_idx = psbt_get_num_outputs(psbt)
     psbt_add_tx_output_at(psbt, output_idx, 0, txout)
